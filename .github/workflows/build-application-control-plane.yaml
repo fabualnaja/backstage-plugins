@@ -43,7 +43,7 @@ jobs:
             cd dist-dynamic
             archive="$(npm pack --silent --pack-destination "$GITHUB_WORKSPACE/dist")"
             if [[ "$role" != "frontend-plugin" ]]; then
-              tar -tzf "$GITHUB_WORKSPACE/dist/$archive" | grep -qx 'package/dist/index.cjs.js'
+              tar -tzf "$GITHUB_WORKSPACE/dist/$archive" | grep -x 'package/dist/index.cjs.js' >/dev/null
             fi
           done
 
