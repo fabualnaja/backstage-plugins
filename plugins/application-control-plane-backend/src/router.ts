@@ -27,36 +27,26 @@ export async function createRouter(options: Options): Promise<Router> {
     const { ownershipEntityRefs } = await options.userInfo.getUserInfo(credentials);
     const required = String(req.query.minimumRole ?? 'view') as ApplicationRole;
     if (!roles.has(required)) return res.status(400).json({ error: 'minimumRole must be view, edit, or admin' });
-    const serviceCredentials = await options.auth.getOwnServiceCredentials();
-    const response = await options.catalog.getEntities({}, { credentials: serviceCredentials });
-    const visible = response.items
-      .filter(isApplication)
-      .flatMap(entity => {
-        const role = effectiveRole(entity, ownershipEntityRefs);
-        if (!hasRole(role, required)) return [];
-        try {
-          const data = applicationData(entity);
-          return [{ ...data, effectiveRole: role }];
-        }
-        catch (error) {
-          options.logger.warn(String(error));
-          return [];
-        }
-      });
-    const [argo, activity] = await Promise.all([
-      readArgoApplications(options).catch(error => {
-        options.logger.warn(`Argo aggregation unavailable: ${error}`);
-        return new Map<string, ArgoSummary>();
-      }),
-      readGitLabActivity(options, visible).catch(error => {
-        options.logger.warn(`GitLab activity unavailable: ${error}`);
-        return [];
-      }),
-    ]);
+    const visible = await readVisibleApplications(options, ownershipEntityRefs, required);
+    const argo = await readArgoApplications(options).catch(error => {
+      options.logger.warn(`Argo aggregation unavailable: ${error}`);
+      return new Map<string, ArgoSummary>();
+    });
     const items = visible
       .map(data => ({ ...data, health: argo.get(`${data.tenant}/${data.name}`)?.health ?? 'Unknown', sync: argo.get(`${data.tenant}/${data.name}`)?.sync ?? 'Unknown' }))
       .sort((a, b) => a.title.localeCompare(b.title));
-    return res.json({ items, activity, isPlatformAdmin: ownershipEntityRefs.includes('group:default/platform-admins') });
+    return res.json({ items, isPlatformAdmin: ownershipEntityRefs.includes('group:default/platform-admins') });
+  });
+
+  router.get('/v1/activity', async (req, res) => {
+    const credentials = await options.httpAuth.credentials(req, { allow: ['user'] });
+    const { ownershipEntityRefs } = await options.userInfo.getUserInfo(credentials);
+    const visible = await readVisibleApplications(options, ownershipEntityRefs, 'view');
+    const activity = await readGitLabActivity(options, visible).catch(error => {
+      options.logger.warn(`GitLab activity unavailable: ${error}`);
+      return [];
+    });
+    return res.json({ activity });
   });
 
   router.get('/v1/applications/:namespace/:name', async (req, res) => {
@@ -75,6 +65,31 @@ export async function createRouter(options: Options): Promise<Router> {
   });
 
   return router;
+}
+
+async function readVisibleApplications(
+  options: Options,
+  ownershipEntityRefs: string[],
+  required: ApplicationRole,
+) {
+  const serviceCredentials = await options.auth.getOwnServiceCredentials();
+  const response = await options.catalog.getEntities(
+    { filter: { kind: 'System', 'spec.type': 'application' } },
+    { credentials: serviceCredentials },
+  );
+  return response.items.flatMap(entity => {
+    if (!isApplication(entity)) return [];
+    const role = effectiveRole(entity, ownershipEntityRefs);
+    if (!hasRole(role, required)) return [];
+    try {
+      const data = applicationData(entity);
+      return [{ ...data, effectiveRole: role }];
+    }
+    catch (error) {
+      options.logger.warn(String(error));
+      return [];
+    }
+  });
 }
 
 type ArgoSummary = { health: string; sync: string; resources: Array<{ name: string; kind: string; health: string; sync: string }> };

@@ -16,8 +16,13 @@ export function useApplications() {
       const base = await discovery.getBaseUrl('application-control-plane');
       const response = await fetchApi.fetch(`${base}/v1/applications`);
       if (!response.ok) throw new Error(`Application query failed (${response.status})`);
-      const payload = await response.json() as { items: ApplicationSummary[]; activity?: ActivityItem[]; isPlatformAdmin?: boolean };
-      setData(payload.items); setActivity(payload.activity ?? []); setIsPlatformAdmin(payload.isPlatformAdmin ?? false);
+      const payload = await response.json() as { items: ApplicationSummary[]; isPlatformAdmin?: boolean };
+      setData(payload.items); setIsPlatformAdmin(payload.isPlatformAdmin ?? false); setLoading(false);
+      void fetchApi.fetch(`${base}/v1/activity`).then(async activityResponse => {
+        if (!activityResponse.ok) return;
+        const activityPayload = await activityResponse.json() as { activity?: ActivityItem[] };
+        setActivity(activityPayload.activity ?? []);
+      }).catch(() => undefined);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setLoading(false); }
   }, [discovery, fetchApi]);
