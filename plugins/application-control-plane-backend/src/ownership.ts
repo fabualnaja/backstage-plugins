@@ -50,18 +50,23 @@ export function isApplication(entity: Entity): boolean {
 
 export function applicationData(entity: Entity) {
   const annotations = entity.metadata.annotations ?? {};
-  const tenant = annotations['ncai.backstage.io/tenant'];
-  const name = annotations['ncai.backstage.io/title'] ?? entity.metadata.title ?? entity.metadata.name;
+  const separator = '-tenant-';
+  const separatorIndex = entity.metadata.name.indexOf(separator);
+  const inferredTenant = separatorIndex > 0 ? entity.metadata.name.slice(0, separatorIndex) : undefined;
+  const inferredName = separatorIndex > 0 ? entity.metadata.name.slice(separatorIndex + separator.length) : undefined;
+  const tenant = annotations['ncai.backstage.io/tenant'] ?? inferredTenant;
+  const name = annotations['ncai.backstage.io/application'] ?? inferredName ?? entity.metadata.name;
   if (!tenant || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(tenant) || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
     throw new Error(`Invalid managed application entity: ${entity.metadata.name}`);
   }
+  const displayName = annotations['ncai.backstage.io/title'] ?? entity.metadata.title ?? name;
   return {
     ref: `system:${entity.metadata.namespace ?? 'default'}/${entity.metadata.name}`,
     tenant,
     name,
-    title: `${name} (${tenant})`,
+    title: `${displayName} (${tenant})`,
     description: entity.metadata.description ?? annotations['ncai.backstage.io/description'] ?? '',
-    namespace: `${tenant}-tenant-${name}`,
+    namespace: entity.metadata.name === `${tenant}-tenant-${name}` ? entity.metadata.name : `${tenant}-tenant-${name}`,
     owners: applicationOwners(entity),
   };
 }
